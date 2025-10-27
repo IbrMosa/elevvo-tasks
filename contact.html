@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Contact Us</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="contact.css">
+</head>
+<body>
+	<header class="hero">
+		<div class="hero-inner">
+			<div class="hero-bar">
+				<h1>Contact Us</h1>
+				<p>We would love to hear from you. Please fill out the form below.</p>
+			</div>
+		</div>
+	</header>
+
+	<main class="container">
+		<form class="contact-form" action="#" method="post" novalidate>
+			<div class="field">
+				<label for="fullName">Full Name</label>
+				<input id="fullName" name="fullName" type="text" autocomplete="name" required>
+			</div>
+
+			<div class="field">
+				<label for="email">Email Address</label>
+				<input id="email" name="email" type="email" autocomplete="email" required>
+			</div>
+
+			<div class="field">
+				<label for="subject">Subject</label>
+				<input id="subject" name="subject" type="text" required>
+			</div>
+
+			<div class="field">
+				<label for="message">Message</label>
+				<textarea id="message" name="message" rows="6" required></textarea>
+			</div>
+
+			<button class="submit-btn" type="submit">Submit</button>
+		</form>
+	</main>
+
+	<footer class="site-footer">
+		<div class="hero-bar">
+			<div class="brand">
+				<img class="brand-logo" src="logo.png" alt="Elevvo logo">
+				<span class="brand-name">Elevvo</span>
+			</div>
+			<div class="socials">
+				<a class="social-link" href="#" aria-label="Elevvo on Instagram">
+					<svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+						<rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" stroke-width="2"/>
+						<circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="2"/>
+						<circle cx="17.5" cy="6.5" r="1.2" fill="currentColor"/>
+					</svg>
+					<span>@elevvo</span>
+				</a>
+				<a class="social-link" href="#" aria-label="Elevvo on Facebook">
+					<svg class="icon" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+						<path d="M13.5 22V12.8h2.8l.4-3.3h-3.2V7.3c0-.9.3-1.5 1.6-1.5h1.7V2.8c-.3 0-1.3-.1-2.5-.1-2.5 0-4.3 1.5-4.3 4.4v2.4H7v3.3h3V22h3.5z"/>
+					</svg>
+					<span>/elevvo</span>
+				</a>
+				<a class="social-link" href="#" aria-label="Elevvo on Twitter">
+					<svg class="icon" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+						<path d="M22 5.8c-.7.3-1.4.6-2.1.6.8-.5 1.3-1.2 1.6-2.1-.7.4-1.6.8-2.4 1-1.4-1.6-3.9-1.5-5.2.2-1 .9-1.3 2.4-.8 3.6-2.9-.1-5.5-1.6-7.2-3.9-.9 1.6-.4 3.7 1.1 4.7-.6 0-1.2-.2-1.7-.5 0 1.9 1.3 3.5 3.2 3.9-.5.1-1 .2-1.5.1.4 1.6 1.9 2.7 3.6 2.8-1.4 1.1-3.2 1.6-5 1.4 1.9 1.2 4.1 1.8 6.3 1.8 7.6 0 11.8-6.5 11.5-12.2.8-.5 1.4-1.2 1.9-1.9z"/>
+					</svg>
+					<span>@elevvoHQ</span>
+				</a>
+				<a class="social-link" href="#" aria-label="Elevvo on TikTok">
+					<svg class="icon" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+						<path d="M20.5 9.2c-2 0-3.9-1-5-2.6v7.3c0 3-2.4 5.4-5.4 5.4S4.7 16.9 4.7 14s2.4-5.4 5.4-5.4c.5 0 .9.1 1.4.2v2.8c-.4-.2-.9-.3-1.4-.3-1.6 0-2.9 1.3-2.9 2.9S8.5 17 10.1 17s2.9-1.3 2.9-2.9V2.5h3c.6 1.9 2.3 3.3 4.5 3.5v3.2z"/>
+					</svg>
+					<span>@elevvo</span>
+				</a>
+				<span class="hotline">Hotline: <a href="tel:+201234567890">+20 123 456 7890</a></span>
+			</div>
+		</div>
+	</footer>
+
+	<!-- Success overlay -->
+	<div id="successOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+		<div class="overlay-card">
+			<h2 id="successTitle" class="overlay-title">
+				<svg class="check" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+					<circle cx="12" cy="12" r="11" fill="#10b981" opacity="0.2"/>
+					<path d="M6.5 12.5l3.2 3.2L17.5 8" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
+				<span>Thank you</span>
+			</h2>
+			<p>Your message will be taken into consideration.</p>
+			<button id="overlayClose" class="submit-btn" type="button">Go back to Homepage</button>
+		</div>
+	</div>
+
+	<script src="contact.js"></script>
+</body>
+</html>
