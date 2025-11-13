@@ -1,457 +1,297 @@
-// Scroll animations and interactivity
-document.addEventListener('DOMContentLoaded', function() {
-    const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    // Intersection Observer for scroll animations
-    const observerOptions = {
-        threshold: 0.1,
-        rootMargin: '0px 0px -50px 0px'
-    };
+const el = (sel, root = document) => root.querySelector(sel);
+const els = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const debounce = (fn, ms = 250) => {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+};
 
-    const observer = new IntersectionObserver(function(entries) {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('animate');
-            }
-        });
-    }, observerOptions);
+const recentKey = 'weather_recent_cities_v1';
+const cardsEl = el('#cards');
+const recentEl = el('#recent');
+const suggestionsEl = el('#suggestions');
 
-    // Observe elements for animation
-    const animateElements = document.querySelectorAll('.feature-card, .review-card, .pricing-card');
-    animateElements.forEach(el => {
-        observer.observe(el);
-    });
+function loadRecent() {
+  try {
+    return JSON.parse(localStorage.getItem(recentKey)) || [];
+  } catch { return []; }
+}
+function saveRecent(list) { localStorage.setItem(recentKey, JSON.stringify(list.slice(0, 8))); }
 
-    // Features carousel: centered large card with side previews
-    (function initFeaturesCarousel() {
-        const carousel = document.querySelector('.features-carousel');
-        const track = document.querySelector('.features-grid');
-        const prevBtn = document.querySelector('.features-carousel .carousel-btn.prev');
-        const nextBtn = document.querySelector('.features-carousel .carousel-btn.next');
-        if (!carousel || !track) return;
+function chip(label, onClick) {
+  const b = document.createElement('button');
+  b.className = 'chip';
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
 
-        // Build infinite loop by cloning edges
-        const originalCards = Array.from(track.querySelectorAll('.feature-card'));
-        if (originalCards.length === 0) return;
-        const CLONE_COUNT = Math.min(2, originalCards.length); // clone up to 2 on each side
+function setRecent(list) {
+  if (!recentEl) return; // recent chips section removed
+  recentEl.innerHTML = '';
+  list.forEach(c => recentEl.appendChild(chip(c.name, () => addCityCard(c))));
+}
 
-        // Prevent double-initialization (if rerun)
-        if (track._infiniteInitialized) return;
-        track._infiniteInitialized = true;
+function addRecent(city) {
+  const list = loadRecent();
+  const exists = list.find(c => c.id === city.id);
+  const next = [city, ...list.filter(c => c.id !== city.id)];
+  saveRecent(next);
+  setRecent(next);
+}
 
-        const prependClones = [];
-        const appendClones = [];
-        for (let i = 0; i < CLONE_COUNT; i++) {
-            const fromEnd = originalCards[originalCards.length - 1 - i].cloneNode(true);
-            fromEnd.setAttribute('data-clone', 'true');
-            prependClones.push(fromEnd);
+function showSkeleton() {
+  const tpl = el('#card-skeleton');
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  cardsEl.prepend(node);
+  return node;
+}
 
-            const fromStart = originalCards[i].cloneNode(true);
-            fromStart.setAttribute('data-clone', 'true');
-            appendClones.push(fromStart);
-        }
-        // Insert clones
-        prependClones.reverse().forEach(n => track.insertBefore(n, track.firstChild));
-        appendClones.forEach(n => track.appendChild(n));
+function removeNode(node) { node?.parentElement?.removeChild(node); }
 
-        let cards = Array.from(track.querySelectorAll('.feature-card'));
-        const clonesStart = CLONE_COUNT;
-        const clonesEnd = CLONE_COUNT;
-        let currentIndex = clonesStart; // start at first real item
+function iconUrl(code) {
+  // Map a simple set using Open‑Meteo weather codes
+  const map = {
+    0: '01d', 1: '02d', 2: '03d', 3: '04d',
+    45: '50d', 48: '50d',
+    51: '09d', 53: '09d', 55: '09d',
+    61: '10d', 63: '10d', 65: '10d',
+    71: '13d', 73: '13d', 75: '13d',
+    80: '09d', 81: '09d', 82: '09d',
+    95: '11d', 96: '11d', 99: '11d',
+  };
+  const k = map[code] || '02d';
+  return `https://openweathermap.org/img/wn/${k}@2x.png`;
+}
 
-        function updateButtons() {
-            if (!prevBtn && !nextBtn) return;
-            const atStart = track.scrollLeft <= 1;
-            const maxScroll = track.scrollWidth - track.clientWidth - 1;
-            const atEnd = track.scrollLeft >= maxScroll;
-            if (prevBtn) prevBtn.disabled = atStart;
-            if (nextBtn) nextBtn.disabled = atEnd;
-        }
+function formatDay(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { weekday: 'short' });
+}
 
-        function getClosestIndexToCenter() {
-            const viewportCenter = track.scrollLeft + track.clientWidth / 2;
-            let closestIdx = 0;
-            let minDist = Infinity;
-            cards.forEach((card, idx) => {
-                const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-                const dist = Math.abs(cardCenter - viewportCenter);
-                if (dist < minDist) {
-                    minDist = dist;
-                    closestIdx = idx;
-                }
-            });
-            return closestIdx;
-        }
+async function geocodeCity(q) {
+  // Use Open‑Meteo geocoding
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=en&format=json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Geocoding failed');
+  const data = await res.json();
+  if (!data.results?.length) throw new Error('City not found');
+  const c = data.results[0];
+  return { id: `${c.id}`, name: `${c.name}${c.country ? ', ' + c.country : ''}`.trim(), lat: c.latitude, lon: c.longitude };
+}
 
-        function applyCenterClasses(centerIdx) {
-            cards.forEach((card, idx) => {
-                card.classList.remove('is-center', 'is-near');
-                if (idx === centerIdx) {
-                    card.classList.add('is-center');
-                } else if (Math.abs(idx - centerIdx) === 1) {
-                    card.classList.add('is-near');
-                }
-            });
-        }
+async function searchCities(q, limit = 6) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=${limit}&language=en&format=json`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.results || []).map(c => ({
+    id: `${c.id}`,
+    name: c.name,
+    country: c.country || '',
+    admin1: c.admin1 || '',
+    lat: c.latitude,
+    lon: c.longitude
+  }));
+}
 
-        function centerCard(index, behavior = 'smooth') {
-            let targetIndex = Math.max(0, Math.min(index, cards.length - 1));
-            const card = cards[targetIndex];
-            const targetLeft = card.offsetLeft + card.offsetWidth / 2 - track.clientWidth / 2;
-            track.scrollTo({ left: targetLeft, behavior });
-            currentIndex = targetIndex;
+async function reverseGeocode(lat, lon) {
+  const url = `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=en&format=json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Reverse geocoding failed');
+  const data = await res.json();
+  const c = data.results?.[0];
+  if (!c) return null;
+  return { id: `${c.id || `${lat},${lon}`}`, name: `${c.name}${c.country ? ', ' + c.country : ''}`.trim(), lat, lon };
+}
 
-            // After scrolling, if we're in clones, jump to equivalent real slide without animation
-            setTimeout(() => {
-                // Wrapped to right end (beyond last real)
-                if (currentIndex >= cards.length - clonesEnd) {
-                    targetIndex = clonesStart; // first real
-                    const real = cards[targetIndex];
-                    const left = real.offsetLeft + real.offsetWidth / 2 - track.clientWidth / 2;
-                    track.scrollTo({ left, behavior: 'auto' });
-                    currentIndex = targetIndex;
-                }
-                // Wrapped to left end (before first real)
-                if (currentIndex < clonesStart) {
-                    targetIndex = (cards.length - clonesEnd - 1); // last real
-                    const real = cards[targetIndex];
-                    const left = real.offsetLeft + real.offsetWidth / 2 - track.clientWidth / 2;
-                    track.scrollTo({ left, behavior: 'auto' });
-                    currentIndex = targetIndex;
-                }
-                applyCenterClasses(currentIndex);
-                updateButtons();
-            }, 360);
-        }
+async function fetchWeather(lat, lon) {
+  const params = new URLSearchParams({
+    latitude: lat, longitude: lon,
+    current: 'temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code',
+    daily: 'weather_code,temperature_2m_max,temperature_2m_min',
+    timezone: 'auto'
+  });
+  const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Weather fetch failed');
+  return res.json();
+}
 
-        if (prevBtn) {
-            prevBtn.addEventListener('click', () => {
-                const current = getClosestIndexToCenter();
-                centerCard(current - 1);
-            });
-        }
-        if (nextBtn) {
-            nextBtn.addEventListener('click', () => {
-                const current = getClosestIndexToCenter();
-                centerCard(current + 1);
-            });
-        }
+function buildCard(city, wx) {
+  const tpl = el('#card-template');
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  el('.title', node).textContent = city.name;
+  const subtitle = city.placeName
+    ? `${city.placeName} · ${new Date().toLocaleString()}`
+    : new Date().toLocaleString();
+  el('.sub', node).textContent = subtitle;
 
-        // Update center state on scroll (throttled by rAF)
-        track.addEventListener('scroll', () => {
-            if (track._ticking) return;
-            track._ticking = true;
-            requestAnimationFrame(() => {
-                const idx = getClosestIndexToCenter();
-                currentIndex = idx;
-                applyCenterClasses(currentIndex);
-                updateButtons();
-                track._ticking = false;
-            });
-        });
+  const c = wx.current;
+  el('.icon', node).src = iconUrl(c.weather_code);
+  el('.temp', node).textContent = `${Math.round(c.temperature_2m)}°C`;
+  el('.humidity', node).textContent = `Humidity: ${c.relative_humidity_2m}%`;
+  el('.wind', node).textContent = `Wind: ${Math.round(c.wind_speed_10m)} km/h`;
 
-        // Recenter on resize
-        window.addEventListener('resize', () => {
-            const idx = getClosestIndexToCenter();
-            centerCard(idx);
-        });
-
-        // Auto-advance every 3.5s nonstop
-        let autoTimer = null;
-
-        function getCurrentCenteredIndex() { return currentIndex; }
-
-        function nextAuto() {
-            const current = getCurrentCenteredIndex();
-            const next = (current + 1) % cards.length;
-            centerCard(next);
-        }
-
-        function startAuto() {
-            stopAuto();
-            if (!prefersReduced) {
-                autoTimer = setInterval(nextAuto, 3500);
-            }
-        }
-
-        function stopAuto() {
-            if (autoTimer) {
-                clearInterval(autoTimer);
-                autoTimer = null;
-            }
-        }
-
-        // No pause on hover/touch: continuous autoplay
-
-        // Initial center to first real card and start auto
-        setTimeout(() => {
-            centerCard(currentIndex, 'auto');
-            startAuto();
-        }, 0);
-    })();
-
-    // Smooth scrolling for CTA button
-    const ctaButton = document.querySelector('.cta-button');
-    if (ctaButton) {
-        ctaButton.addEventListener('click', function(e) {
-            e.preventDefault();
-            const pricingSection = document.querySelector('.pricing');
-            if (pricingSection) {
-                pricingSection.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-            }
-        });
-    }
-
-    // Pricing button interactions
-    const pricingButtons = document.querySelectorAll('.pricing-button');
-    pricingButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const planName = this.closest('.pricing-card').querySelector('h3').textContent;
-            
-            // Add a simple click animation
-            this.style.transform = 'scale(0.95)';
-            setTimeout(() => {
-                this.style.transform = '';
-            }, 150);
-
-            // Show a simple alert (in a real app, this would redirect to signup)
-            alert(`Thank you for your interest in the ${planName} plan! This would redirect to our signup page.`);
-        });
-    });
-
-    // Add hover effects for social links
-    const socialLinks = document.querySelectorAll('.social-link');
-    socialLinks.forEach(link => {
-        link.addEventListener('mouseenter', function() {
-            this.style.transform = 'translateY(-3px) scale(1.1)';
-        });
-        
-        link.addEventListener('mouseleave', function() {
-            this.style.transform = 'translateY(0) scale(1)';
-        });
-    });
-
-    // Parallax effect for hero section
-    if (!prefersReduced && window.innerWidth > 768) {
-        window.addEventListener('scroll', function() {
-            const scrolled = window.pageYOffset;
-            const hero = document.querySelector('.hero');
-            if (hero) {
-                const rate = scrolled * -0.5;
-                hero.style.transform = `translateY(${rate}px)`;
-            }
-        });
-    }
-
-    // Add loading animation
-    window.addEventListener('load', function() {
-        document.body.classList.add('loaded');
-    });
-
-    // Mobile menu toggle (if needed in future)
-    function createMobileMenu() {
-        const nav = document.createElement('nav');
-        nav.className = 'mobile-nav';
-        nav.innerHTML = `
-            <div class="mobile-nav-toggle">
-                <span></span>
-                <span></span>
-                <span></span>
-            </div>
-            <ul class="mobile-nav-menu">
-                <li><a href="#features">Features</a></li>
-                <li><a href="#reviews">Reviews</a></li>
-                <li><a href="#pricing">Pricing</a></li>
-                <li><a href="#contact">Contact</a></li>
-            </ul>
-        `;
-        
-        // Add mobile nav styles
-        const style = document.createElement('style');
-        style.textContent = `
-            .mobile-nav {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                background: rgba(102, 126, 234, 0.95);
-                backdrop-filter: blur(10px);
-                z-index: 1000;
-                padding: 15px 20px;
-            }
-            
-            .mobile-nav-toggle {
-                display: flex;
-                flex-direction: column;
-                cursor: pointer;
-                width: 30px;
-                height: 25px;
-                justify-content: space-between;
-            }
-            
-            .mobile-nav-toggle span {
-                display: block;
-                height: 3px;
-                background: white;
-                border-radius: 2px;
-                transition: all 0.3s ease;
-            }
-            
-            .mobile-nav-menu {
-                display: none;
-                list-style: none;
-                margin-top: 20px;
-            }
-            
-            .mobile-nav-menu li {
-                margin-bottom: 15px;
-            }
-            
-            .mobile-nav-menu a {
-                color: white;
-                text-decoration: none;
-                font-weight: 500;
-                transition: color 0.3s ease;
-            }
-            
-            .mobile-nav-menu a:hover {
-                color: #ff6b6b;
-            }
-            
-            @media (max-width: 768px) {
-                .mobile-nav {
-                    display: block;
-                }
-            }
-        `;
-        document.head.appendChild(style);
-        document.body.insertBefore(nav, document.body.firstChild);
-    }
-
-    // Initialize mobile menu for smaller screens
-    if (window.innerWidth <= 768) {
-        createMobileMenu();
-    }
-
-    // Tap-to-flip for review cards on touch/coarse pointers
-    const isTouchCapable = ("ontouchstart" in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints && navigator.msMaxTouchPoints > 0);
-    if (isTouchCapable) {
-        const reviewCards = document.querySelectorAll('.review-card.flip-card');
-        reviewCards.forEach(card => {
-            card.addEventListener('click', (e) => {
-                // Avoid toggling when clicking interactive elements
-                const tag = e.target.tagName.toLowerCase();
-                if (tag === 'a' || tag === 'button') return;
-                card.classList.toggle('flip');
-            });
-        });
-    }
-
-    // Add scroll-to-top functionality
-    const scrollToTopButton = document.createElement('button');
-    scrollToTopButton.innerHTML = '<i class="fas fa-arrow-up"></i>';
-    scrollToTopButton.className = 'scroll-to-top';
-    scrollToTopButton.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        width: 50px;
-        height: 50px;
-        background: #667eea;
-        color: white;
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
-        opacity: 0;
-        visibility: hidden;
-        transition: all 0.3s ease;
-        z-index: 1000;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  const fc = el('.forecast', node);
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement('div');
+    d.className = 'day';
+    const date = wx.daily.time[i];
+    const code = wx.daily.weather_code[i];
+    const hi = wx.daily.temperature_2m_max[i];
+    const lo = wx.daily.temperature_2m_min[i];
+    d.innerHTML = `
+      <div class="d">${formatDay(date)}</div>
+      <img alt="" src="${iconUrl(code)}" width="36" height="36" />
+      <div>${Math.round(lo)}° / ${Math.round(hi)}°</div>
     `;
-    
-    document.body.appendChild(scrollToTopButton);
+    fc.appendChild(d);
+  }
 
-    // Show/hide scroll to top button
-    window.addEventListener('scroll', function() {
-        if (window.pageYOffset > 300) {
-            scrollToTopButton.style.opacity = '1';
-            scrollToTopButton.style.visibility = 'visible';
-        } else {
-            scrollToTopButton.style.opacity = '0';
-            scrollToTopButton.style.visibility = 'hidden';
-        }
+  el('.remove', node).addEventListener('click', () => removeNode(node));
+  return node;
+}
+
+async function addCityCard(city, addToRecent = true) {
+  if (addToRecent) addRecent(city);
+  const sk = showSkeleton();
+  try {
+    const wx = await fetchWeather(city.lat, city.lon);
+    const card = buildCard(city, wx);
+    cardsEl.replaceChild(card, sk);
+  } catch (e) {
+    console.error(e);
+    const err = document.createElement('div');
+    err.className = 'card';
+    err.textContent = `Failed to load weather for ${city.name}`;
+    cardsEl.replaceChild(err, sk);
+  }
+}
+
+function attachSearch() {
+  const form = el('#search-form');
+  const input = el('#search-input');
+  let activeIndex = -1; // for keyboard navigation
+
+  function hideSuggestions() {
+    if (!suggestionsEl) return;
+    suggestionsEl.classList.remove('show');
+    suggestionsEl.innerHTML = '';
+    activeIndex = -1;
+  }
+
+  function renderSuggestions(list) {
+    if (!suggestionsEl) return;
+    if (!list.length) return hideSuggestions();
+    suggestionsEl.innerHTML = '';
+    list.forEach((c, idx) => {
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.setAttribute('role', 'option');
+      item.innerHTML = `<span class="name">${c.name}${c.country ? ', ' + c.country : ''}</span><span class="subtle">${c.admin1 || ''}</span>`;
+      item.addEventListener('mousedown', (e) => { // mousedown to fire before blur
+        e.preventDefault();
+        hideSuggestions();
+        addCityCard({ id: c.id, name: `${c.name}${c.country ? ', ' + c.country : ''}`, lat: c.lat, lon: c.lon });
+        input.value = '';
+      });
+      suggestionsEl.appendChild(item);
     });
+    suggestionsEl.classList.add('show');
+  }
 
-    // Scroll to top functionality
-    scrollToTopButton.addEventListener('click', function() {
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-        });
+  const doSuggest = debounce(async (q) => {
+    if (!q || q.length < 1) return hideSuggestions();
+    try {
+      const list = await searchCities(q);
+      renderSuggestions(list);
+    } catch { hideSuggestions(); }
+  }, 200);
+
+  input.addEventListener('input', (e) => {
+    doSuggest(e.target.value.trim());
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (!suggestionsEl?.classList.contains('show')) return;
+    const items = els('.item', suggestionsEl);
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = (activeIndex + 1) % items.length; }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = (activeIndex - 1 + items.length) % items.length; }
+    else if (e.key === 'Enter') {
+      if (activeIndex >= 0 && items[activeIndex]) {
+        e.preventDefault(); items[activeIndex].dispatchEvent(new Event('mousedown')); return;
+      }
+    } else if (e.key === 'Escape') { hideSuggestions(); return; }
+    items.forEach((it, i) => it.classList.toggle('active', i === activeIndex));
+  });
+
+  input.addEventListener('blur', () => setTimeout(hideSuggestions, 120));
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q) return;
+    try {
+      const city = await geocodeCity(q);
+      addCityCard(city);
+      input.value = '';
+      hideSuggestions();
+    } catch (err) {
+      alert(err.message || 'City not found');
+    }
+  });
+}
+
+function attachGeo() {
+  el('#geo-btn').addEventListener('click', () => {
+    if (!navigator.geolocation) return alert('Geolocation not supported');
+    const sk = showSkeleton();
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const { latitude: lat, longitude: lon } = pos.coords;
+        const [wx, place] = await Promise.all([
+          fetchWeather(lat, lon),
+          reverseGeocode(lat, lon).catch(() => null)
+        ]);
+        const city = place
+          ? { id: `${place.id || `${lat.toFixed(3)},${lon.toFixed(3)}`}`, name: 'My Location', placeName: place.name, lat, lon }
+          : { id: `${lat.toFixed(3)},${lon.toFixed(3)}`, name: 'My Location', lat, lon };
+        addRecent(city);
+        const card = buildCard(city, wx);
+        cardsEl.replaceChild(card, sk);
+      } catch (e) {
+        console.error(e);
+        const err = document.createElement('div'); err.className = 'card'; err.textContent = 'Failed to load weather';
+        cardsEl.replaceChild(err, sk);
+      }
+    }, () => {
+      const err = document.createElement('div'); err.className = 'card'; err.textContent = 'Location permission denied';
+      cardsEl.replaceChild(err, sk);
     });
+  });
+}
 
-    // Add typing effect to hero title
-    function typeWriter(element, text, speed = 100) {
-        let i = 0;
-        element.innerHTML = '';
-        
-        function type() {
-            if (i < text.length) {
-                element.innerHTML += text.charAt(i);
-                i++;
-                setTimeout(type, speed);
-            }
-        }
-        type();
-    }
+function famousCities() {
+  return [
+    { id: 'nyc', name: 'New York, US', lat: 40.7128, lon: -74.0060 },
+    { id: 'lon', name: 'London, UK', lat: 51.5072, lon: -0.1276 },
+    { id: 'par', name: 'Paris, FR', lat: 48.8566, lon: 2.3522 },
+    { id: 'ber', name: 'Berlin, DE', lat: 52.5200, lon: 13.4050 },
+    { id: 'tok', name: 'Tokyo, JP', lat: 35.6762, lon: 139.6503 },
+    { id: 'dub', name: 'Dubai, AE', lat: 25.2048, lon: 55.2708 },
+    { id: 'syd', name: 'Sydney, AU', lat: -33.8688, lon: 151.2093 },
+    { id: 'ist', name: 'Istanbul, TR', lat: 41.0082, lon: 28.9784 },
+    { id: 'mos', name: 'Moscow, RU', lat: 55.7558, lon: 37.6173 }
+  ];
+}
 
-    // Apply typing effect to hero title
-    const heroTitle = document.querySelector('.hero-title');
-    if (heroTitle) {
-        const originalText = heroTitle.textContent;
-        setTimeout(() => {
-            typeWriter(heroTitle, originalText, 150);
-        }, 500);
-    }
+function preloadFamous() {
+  famousCities().forEach(c => addCityCard(c, false));
+}
 
-    // Add counter animation for pricing
-    function animateCounters() {
-        const counters = document.querySelectorAll('.amount');
-        counters.forEach(counter => {
-            const target = parseInt(counter.textContent);
-            const increment = target / 50;
-            let current = 0;
-            
-            const updateCounter = () => {
-                if (current < target) {
-                    current += increment;
-                    counter.textContent = Math.ceil(current);
-                    requestAnimationFrame(updateCounter);
-                } else {
-                    counter.textContent = target;
-                }
-            };
-            
-            updateCounter();
-        });
-    }
-
-    // Trigger counter animation when pricing section is visible
-    const pricingObserver = new IntersectionObserver(function(entries) {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                animateCounters();
-                pricingObserver.unobserve(entry.target);
-            }
-        });
-    });
-
-    const pricingSection = document.querySelector('.pricing');
-    if (pricingSection) {
-        pricingObserver.observe(pricingSection);
-    }
-});
+// Init
+(function init() {
+  setRecent(loadRecent());
+  attachSearch();
+  attachGeo();
+  preloadFamous();
+})();
